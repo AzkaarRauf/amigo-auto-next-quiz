@@ -46,8 +46,15 @@ function performAction(type) {
     case 'quizview': {
       const attemptButton = [...document.querySelectorAll('button, a')]
         .find(el => el.textContent.trim().includes('Attempt quiz'));
-      attemptButton?.click();
-      return !!attemptButton;
+      if (attemptButton) {
+        attemptButton.click();
+        return true;
+      }
+      // No attempt button (e.g. quiz already done / no attempts left):
+      // skip ahead via Next activity.
+      const nextLink = document.getElementById('next-activity-link');
+      nextLink?.click();
+      return !!nextLink;
     }
     case 'attempt': {
       const nextButton = document.querySelector('input[type="submit"]#mod_quiz-next-nav');
