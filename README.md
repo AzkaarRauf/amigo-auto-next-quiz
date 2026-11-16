@@ -9,6 +9,9 @@ The extension recognises five page types on the site and performs the natural "f
 | Page | Action |
 |------|--------|
 | `mod/page/view.php` | Click **Next activity** |
+| `mod/resource/view.php` | Click **Next activity** |
+| `mod/feedback/view.php` | Click **Answer the questions**; if already submitted, click **Next activity** |
+| `mod/feedback/complete.php` | Select every **9** radio, then click **Next section** (or **Submit your answers**); if already submitted, click **Next activity** |
 | `mod/quiz/view.php` | Click **Attempt quiz**; if none, click **Next activity** |
 | `mod/quiz/attempt.php` | Click **Next page** (this is the stop point for Auto Navigate) |
 | `mod/quiz/summary.php` | Click **Submit all and finish**, then confirm |

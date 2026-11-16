@@ -28,7 +28,10 @@ chrome.storage.onChanged.addListener((changes, area) => {
 function getPageType(url) {
   if (url.startsWith(`${BASE}/quiz/attempt.php`)) return 'attempt';
   if (url.startsWith(`${BASE}/page/view.php`)) return 'page';
+  if (url.startsWith(`${BASE}/resource/view.php`)) return 'page';
   if (url.startsWith(`${BASE}/quiz/view.php`)) return 'quizview';
+  if (url.startsWith(`${BASE}/feedback/view.php`)) return 'feedback';
+  if (url.startsWith(`${BASE}/feedback/complete.php`)) return 'feedbackform';
   if (url.startsWith(`${BASE}/quiz/summary.php`)) return 'summary';
   if (url.startsWith(`${BASE}/quiz/review.php`)) return 'review';
   return 'other';
@@ -55,6 +58,34 @@ function performAction(type) {
       const nextLink = document.getElementById('next-activity-link');
       nextLink?.click();
       return !!nextLink;
+    }
+    case 'feedback': {
+      const answerLink = [...document.querySelectorAll('a, button')]
+        .find(el => el.textContent.trim().toLowerCase().includes('answer the questions'));
+      // Already submitted: no answer link, so skip ahead.
+      const target = answerLink ?? document.getElementById('next-activity-link');
+      target?.click();
+      return !!target;
+    }
+    case 'feedbackform': {
+      // Pick the "9" option in every radio group.
+      const radioLabel = (radio) => {
+        const label = radio.labels?.[0] ?? radio.closest('label');
+        return label?.textContent.trim() ?? '';
+      };
+      document.querySelectorAll('input[type="radio"]').forEach(radio => {
+        if (radioLabel(radio) === '9' && !radio.checked) radio.click();
+      });
+
+      // Multi-section forms: go to the next section; otherwise submit.
+      const buttons = [...document.querySelectorAll('input[type="submit"], button')];
+      const findButton = (text) => buttons
+        .find(el => (el.value || el.textContent || '').trim().toLowerCase().includes(text));
+      // Already submitted: no form, just the "Next Section" activity link.
+      const button = findButton('next section') ?? findButton('submit your answers')
+        ?? document.getElementById('next-activity-link');
+      button?.click();
+      return !!button;
     }
     case 'attempt': {
       const nextButton = document.querySelector('input[type="submit"]#mod_quiz-next-nav');
@@ -182,7 +213,7 @@ function maybeResumeAutoNav() {
 }
 
 // Pages we know how to act on (everything except unknown pages).
-const ACTIONABLE_TYPES = ['page', 'quizview', 'summary', 'review', 'attempt'];
+const ACTIONABLE_TYPES = ['page', 'quizview', 'feedback', 'feedbackform', 'summary', 'review', 'attempt'];
 
 // Runs one navigation step. When `auto` is true, arms the auto-navigation run
 // so the chain continues across page loads until it ARRIVES at the attempt
