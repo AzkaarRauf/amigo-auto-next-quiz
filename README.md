@@ -12,7 +12,7 @@ The extension recognises five page types on the site and performs the natural "f
 | `mod/resource/view.php` | Click **Next activity** |
 | `mod/feedback/view.php` | Click **Answer the questions**; if already submitted, click **Next activity** |
 | `mod/feedback/complete.php` | Select every **9** radio, then click **Next section** (or **Submit your answers**); if already submitted, click **Next activity** |
-| `mod/quiz/view.php` | Click **Attempt quiz**; if none, click **Next activity** |
+| `mod/quiz/view.php` | Click **Attempt quiz**; else **Continue your attempt**; if neither, click **Next activity** |
 | `mod/quiz/attempt.php` | Click **Next page** (this is the stop point for Auto Navigate) |
 | `mod/quiz/summary.php` | Click **Submit all and finish**, then confirm |
 | `mod/quiz/review.php` | Click **Next activity** |
@@ -36,6 +36,15 @@ There are two ways to trigger it:
 
 - **V1 — Step by step** (default): clicks through every page (content, feedback, quiz) one at a time, as described above.
 - **V2 — Jump to next quiz**: skips content pages. It reads the course's activity list (the focus-mode "Activity List" dropdown), finds the first **incomplete** quiz after the current activity, opens it, and clicks **Attempt quiz**. It stops on the attempt page with a chime. After you answer, click the button again: it pages through the attempt, submits it, and from the review page jumps to the next incomplete quiz. A quiz with no **Attempt quiz** button counts as done and is skipped. Module Assessments are quizzes too, so the run stops on them with the jingle. If the page doesn't show the activity list (e.g. quiz review), V2 fetches it from the current activity's view page.
+
+## Bulk actions (⋮ menu)
+
+With **Floating Button** on, a narrow **⋮** button sits to the right of the golden button. Clicking it opens a menu with two actions. Both read the course's activity list and only look at the **#Module** sections.
+
+- **Open unread pages:** every incomplete activity that isn't a quiz or feedback form (content pages, resources, …) is opened in a **background tab**, one every 5 seconds, starting immediately. Each tab closes as soon as it finishes loading (or after 30s at most). Visiting the page is what marks it viewed. You stay on your current page.
+- **Complete feedback forms:** goes through each incomplete feedback in the current tab: the #Module feedback forms plus the **Student Feedback for …** forms (course and faculty). It clicks **Answer the questions**, picks **9** on every rating, **India** in dropdowns and types **good** into empty text boxes, then clicks **Next section** / **Submit your answers**. Once the "answers saved" page shows (no form left), it moves to the next feedback. It plays the jingle when all are done.
+
+While a run is going, its menu item turns into **Stop …** with progress. Click it or press `Esc` on the page to stop.
 
 ## Recommended usage
 
@@ -82,6 +91,7 @@ Settings are saved with `chrome.storage` and apply to open tabs immediately.
 - `content.js` is injected into every page on `https://amigo.amityonline.com/*` and contains all the navigation logic.
 - A run that's "in progress" is tracked per-tab via `sessionStorage`, so it survives the page reloads that happen as you navigate.
 - The popup (`popup.html` / `popup.js`) reads and writes the toggle values and the navigation mode.
+- `background.js` (service worker) drives **Open unread pages**: it opens and closes the background tabs.
 
 ## Disclaimer
 

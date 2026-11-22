@@ -53,3 +53,4 @@ chrome.storage.local.get(['navVersion'], ({ navVersion }) => {
 versionRadios.forEach((r) => r.addEventListener('change', () => {
   if (r.checked) chrome.storage.local.set({ navVersion: r.value });
 }));
+

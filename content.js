@@ -1,5 +1,7 @@
 const BASE = 'https://amigo.amityonline.com/mod';
 const AUTO_NAV_FLAG = 'amigoShiftN_autoNavActive';
+const FAB_FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+const GOLD_BG = 'linear-gradient(135deg, #ffe066 0%, #ffd700 45%, #d4af37 100%)';
 
 // Defaults: Shift+N on, Auto Navigate off, floating button off.
 const settings = {
@@ -15,6 +17,7 @@ chrome.storage.local.get(['shiftNEnabled', 'autoNavigate', 'showFloatingButton',
   if (typeof stored.showFloatingButton === 'boolean') settings.showFloatingButton = stored.showFloatingButton;
   if (stored.navVersion === 'v1' || stored.navVersion === 'v2') settings.navVersion = stored.navVersion;
   maybeResumeAutoNav();
+  maybeResumeFeedbackRun();
   ensureFloatingButton();
 });
 
@@ -50,13 +53,12 @@ function performAction(type) {
       return !!nextLink;
     }
     case 'quizview': {
-      const attemptButton = [...document.querySelectorAll('button, a')]
-        .find(el => el.textContent.trim().includes('Attempt quiz'));
+      const attemptButton = findAttemptButton();
       if (attemptButton) {
         attemptButton.click();
         return true;
       }
-      // No attempt button (e.g. quiz already done / no attempts left):
+      // No attempt/continue button (e.g. quiz already done / no attempts left):
       // skip ahead via Next activity.
       const nextLink = document.getElementById('next-activity-link');
       nextLink?.click();
@@ -71,22 +73,9 @@ function performAction(type) {
       return !!target;
     }
     case 'feedbackform': {
-      // Pick the "9" option in every radio group.
-      const radioLabel = (radio) => {
-        const label = radio.labels?.[0] ?? radio.closest('label');
-        return label?.textContent.trim() ?? '';
-      };
-      document.querySelectorAll('input[type="radio"]').forEach(radio => {
-        if (radioLabel(radio) === '9' && !radio.checked) radio.click();
-      });
-
-      // Multi-section forms: go to the next section; otherwise submit.
-      const buttons = [...document.querySelectorAll('input[type="submit"], button')];
-      const findButton = (text) => buttons
-        .find(el => (el.value || el.textContent || '').trim().toLowerCase().includes(text));
+      fillFeedbackForm();
       // Already submitted: no form, just the "Next Section" activity link.
-      const button = findButton('next section') ?? findButton('submit your answers')
-        ?? document.getElementById('next-activity-link');
+      const button = findFeedbackSubmitButton() ?? document.getElementById('next-activity-link');
       button?.click();
       return !!button;
     }
@@ -139,10 +128,16 @@ function parseActivities(doc) {
   return [...doc.querySelectorAll(ACTIVITY_LINK_SELECTOR)].map((a) => {
     const url = a.href || a.getAttribute('href');
     const id = url.match(/[?&]id=(\d+)/)?.[1] ?? null;
+    // Section title: the outer accordion card's header (e.g. "#Module 3 : ...").
+    const collapse = a.closest('.collapse');
+    const section = collapse?.parentElement
+      ?.querySelector(':scope > .card-header h5')?.textContent.trim().replace(/\s+/g, ' ') ?? '';
     return {
       id,
       url,
+      section,
       isQuiz: url.includes('/mod/quiz/view.php'),
+      isFeedback: url.includes('/mod/feedback/view.php'),
       complete: !!a.querySelector('.complete_icon'),
       name: a.textContent.trim().replace(/\s+/g, ' '),
     };
@@ -189,9 +184,12 @@ async function goToNextQuiz() {
   }
 }
 
+// "Attempt quiz" first; if absent, "Continue your attempt" (an unfinished
+// attempt is in progress). Null when neither exists.
 function findAttemptButton() {
-  return [...document.querySelectorAll('button, a')]
-    .find(el => el.textContent.trim().includes('Attempt quiz'));
+  const els = [...document.querySelectorAll('button, a')];
+  const find = (text) => els.find(el => el.textContent.trim().toLowerCase().startsWith(text));
+  return find('attempt quiz') ?? find('continue your attempt');
 }
 
 // V2 action for the given page type. Content/feedback pages are skipped
@@ -204,7 +202,7 @@ function performActionV2(type) {
         attemptButton.click();
         return true;
       }
-      // No "Attempt quiz" button => this quiz is done; move to the next one.
+      // No "Attempt quiz" / "Continue your attempt" => quiz done; move on.
       goToNextQuiz();
       return true;
     }
@@ -225,6 +223,189 @@ function performActionV2(type) {
 
 function runAction(type) {
   return settings.navVersion === 'v2' ? performActionV2(type) : performAction(type);
+}
+
+// ---------- Feedback forms ----------
+
+const FEEDBACK_TEXT = 'good';
+const FEEDBACK_COUNTRY = 'india';
+
+function setFieldValue(el, value) {
+  el.value = value;
+  el.dispatchEvent(new Event('input', { bubbles: true }));
+  el.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+// Fills the feedback form on complete.php: "9" on every radio group, "India" in
+// dropdowns, "good" in empty text inputs / textareas. Scoped to the main
+// region so the chat / search boxes elsewhere on the page are left alone.
+function fillFeedbackForm() {
+  const root = document.getElementById('region-main') ?? document;
+
+  const radioLabel = (radio) => {
+    const label = radio.labels?.[0] ?? radio.closest('label');
+    return label?.textContent.trim() ?? '';
+  };
+  root.querySelectorAll('input[type="radio"]').forEach(radio => {
+    if (radioLabel(radio) === '9' && !radio.checked) radio.click();
+  });
+
+  root.querySelectorAll('select').forEach(select => {
+    const india = [...select.options]
+      .find(o => o.textContent.trim().toLowerCase() === FEEDBACK_COUNTRY);
+    if (india && select.value !== india.value) setFieldValue(select, india.value);
+  });
+
+  root.querySelectorAll('textarea, input[type="text"], input:not([type])').forEach(field => {
+    if (field.disabled || field.readOnly || field.type === 'hidden') return;
+    if (!field.value.trim()) setFieldValue(field, FEEDBACK_TEXT);
+  });
+}
+
+// "Next section" on multi-section forms, otherwise "Submit your answers".
+function findFeedbackSubmitButton() {
+  const buttons = [...document.querySelectorAll('input[type="submit"], button')];
+  const findButton = (text) => buttons
+    .find(el => (el.value || el.textContent || '').trim().toLowerCase().includes(text));
+  return findButton('next section') ?? findButton('submit your answers');
+}
+
+function findAnswerQuestionsLink() {
+  return [...document.querySelectorAll('a, button')]
+    .find(el => el.textContent.trim().toLowerCase().includes('answer the questions'));
+}
+
+// A feedback run walks a queue of incomplete feedback activities in the
+// #Module sections, in this tab. State lives in sessionStorage so it survives
+// page loads.
+const FB_QUEUE_KEY = 'amigoShiftN_feedbackQueue';
+const FB_TRIES_KEY = 'amigoShiftN_feedbackTries';
+const FB_MAX_FORM_PAGES = 20; // guard against a validation-error resubmit loop
+
+function getFeedbackQueue() {
+  try { return JSON.parse(sessionStorage.getItem(FB_QUEUE_KEY)); } catch (_) { return null; }
+}
+
+function setFeedbackQueue(queue) {
+  try { sessionStorage.setItem(FB_QUEUE_KEY, JSON.stringify(queue)); } catch (_) {}
+}
+
+function clearFeedbackRun() {
+  try {
+    sessionStorage.removeItem(FB_QUEUE_KEY);
+    sessionStorage.removeItem(FB_TRIES_KEY);
+  } catch (_) {}
+}
+
+function isFeedbackRunActive() {
+  return Array.isArray(getFeedbackQueue());
+}
+
+// Moves on to the next queued feedback, or ends the run.
+function nextFeedback() {
+  const queue = getFeedbackQueue() ?? [];
+  const next = queue.shift();
+  try { sessionStorage.removeItem(FB_TRIES_KEY); } catch (_) {}
+  if (!next) {
+    clearFeedbackRun();
+    playArrivalSound(true);
+    return;
+  }
+  setFeedbackQueue(queue);
+  window.location.href = next;
+}
+
+async function startFeedbackRun() {
+  const activities = await loadActivities();
+  const urls = activities
+    // Module feedback forms, plus the course-level "Student Feedback for ..."
+    // forms (course + faculty), which live in their own section.
+    .filter(a => a.isFeedback && !a.complete &&
+      (a.section.startsWith('#Module') || a.name.toLowerCase().startsWith('student feedback for')))
+    .map(a => a.url);
+  if (!urls.length) return 0;
+  setFeedbackQueue(urls);
+  nextFeedback();
+  return urls.length;
+}
+
+function maybeResumeFeedbackRun() {
+  if (!isFeedbackRunActive()) return;
+  const type = getPageType(window.location.href);
+
+  setTimeout(() => {
+    if (!isFeedbackRunActive()) return;
+
+    if (type === 'feedback') {
+      // Not answered yet: open the form. Answered/closed: move on.
+      const answer = findAnswerQuestionsLink();
+      if (answer) answer.click();
+      else nextFeedback();
+      return;
+    }
+
+    if (type === 'feedbackform') {
+      const submit = findFeedbackSubmitButton();
+      if (!submit) {
+        // No form left => "answers saved" page: this one is submitted.
+        nextFeedback();
+        return;
+      }
+      let tries = 0;
+      try { tries = Number(sessionStorage.getItem(FB_TRIES_KEY)) || 0; } catch (_) {}
+      if (tries >= FB_MAX_FORM_PAGES) {
+        // Stuck (likely a required field we can't fill): stop for the user.
+        clearFeedbackRun();
+        return;
+      }
+      try { sessionStorage.setItem(FB_TRIES_KEY, String(tries + 1)); } catch (_) {}
+      fillFeedbackForm();
+      submit.click();
+      return;
+    }
+
+    // Anywhere else (e.g. course page after submit): move on.
+    nextFeedback();
+  }, 400);
+}
+
+// ---------- Open unread pages (driven by background.js) ----------
+
+// Collects incomplete non-quiz, non-feedback activities in the #Module sections
+// and hands them to the background worker, which opens one background tab
+// every 5 seconds and closes each once it has loaded.
+async function startPagesRun() {
+  const activities = await loadActivities();
+  const items = activities
+    .filter(a => a.section.startsWith('#Module') && !a.isQuiz && !a.isFeedback && !a.complete)
+    .map(({ url, name }) => ({ url, name }));
+  if (!items.length) return 0;
+  await chrome.runtime.sendMessage({ type: 'startPages', items });
+  return items.length;
+}
+
+function stopPagesRun() {
+  return chrome.runtime.sendMessage({ type: 'stopPages' }).catch(() => {});
+}
+
+function getPagesStatus() {
+  return chrome.runtime.sendMessage({ type: 'pagesStatus' }).catch(() => ({ running: false }));
+}
+
+// Small transient message above the floating buttons.
+function showToast(text) {
+  document.getElementById('amigo-shiftn-toast')?.remove();
+  const toast = document.createElement('div');
+  toast.id = 'amigo-shiftn-toast';
+  toast.textContent = text;
+  Object.assign(toast.style, {
+    position: 'fixed', right: '20px', bottom: '84px', zIndex: '2147483647',
+    padding: '8px 12px', borderRadius: '8px', fontSize: '13px',
+    fontFamily: FAB_FONT,
+    background: '#1e293b', color: '#e2e8f0', boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
+  });
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
 }
 
 function setAutoNav() {
@@ -382,7 +563,7 @@ function startNavigation(auto) {
 }
 
 function ensureFloatingButton() {
-  const existing = document.getElementById('amigo-shiftn-fab');
+  const existing = document.getElementById('amigo-shiftn-fab-wrap');
 
   if (!settings.showFloatingButton) {
     existing?.remove();
@@ -391,22 +572,33 @@ function ensureFloatingButton() {
   if (existing) return;
   if (!document.body) return;
 
-  const btn = document.createElement('button');
-  btn.id = 'amigo-shiftn-fab';
-  btn.type = 'button';
-  Object.assign(btn.style, {
+  // Row anchored bottom-right: [golden button][⋮]
+  const wrap = document.createElement('div');
+  wrap.id = 'amigo-shiftn-fab-wrap';
+  Object.assign(wrap.style, {
     position: 'fixed',
     right: '20px',
     bottom: '20px',
     zIndex: '2147483647',
     display: 'flex',
+    alignItems: 'stretch',
+    gap: '6px',
+    fontFamily: FAB_FONT,
+  });
+
+  const btn = document.createElement('button');
+  btn.id = 'amigo-shiftn-fab';
+  btn.type = 'button';
+  Object.assign(btn.style, {
+    display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: '2px',
     padding: '10px 18px',
-    fontFamily: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+    fontFamily: FAB_FONT,
     color: '#3a2d00',
-    background: 'linear-gradient(135deg, #ffe066 0%, #ffd700 45%, #d4af37 100%)',
+    background: GOLD_BG,
     border: '1px solid #c9a227',
     borderRadius: '14px',
     boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
@@ -435,8 +627,150 @@ function ensureFloatingButton() {
     }
   });
 
-  document.body.appendChild(btn);
+  // Narrow three-dot button; same height as the golden one (row is stretch-aligned).
+  const dots = document.createElement('button');
+  dots.id = 'amigo-shiftn-more';
+  dots.type = 'button';
+  dots.title = 'More actions';
+  dots.textContent = '⋮';
+  Object.assign(dots.style, {
+    width: '34px',
+    padding: '0',
+    fontSize: '20px',
+    fontWeight: '700',
+    lineHeight: '1',
+    color: '#3a2d00',
+    background: GOLD_BG,
+    border: '1px solid #c9a227',
+    borderRadius: '14px',
+    boxShadow: '0 4px 14px rgba(0, 0, 0, 0.35)',
+    cursor: 'pointer',
+  });
+
+  const menu = buildMoreMenu();
+  dots.addEventListener('click', (e) => {
+    e.stopPropagation();
+    dots.blur();
+    if (menu.style.display !== 'none') closeMoreMenu();
+    else openMoreMenu();
+  });
+
+  wrap.append(btn, dots, menu);
+  document.body.appendChild(wrap);
   updateFabState();
+}
+
+let moreMenuTimer = null;
+
+function buildMoreMenu() {
+  const menu = document.createElement('div');
+  menu.id = 'amigo-shiftn-menu';
+  Object.assign(menu.style, {
+    display: 'none',
+    position: 'absolute',
+    right: '0',
+    bottom: 'calc(100% + 8px)',
+    minWidth: '250px',
+    padding: '6px',
+    background: '#1e293b',
+    borderRadius: '10px',
+    boxShadow: '0 6px 20px rgba(0, 0, 0, 0.4)',
+    flexDirection: 'column',
+    gap: '4px',
+  });
+  // Clicks inside the menu shouldn't close it.
+  menu.addEventListener('click', (e) => e.stopPropagation());
+
+  const item = (role) => {
+    const el = document.createElement('button');
+    el.type = 'button';
+    el.dataset.role = role;
+    Object.assign(el.style, {
+      textAlign: 'left',
+      padding: '8px 10px',
+      fontFamily: FAB_FONT,
+      fontSize: '13px',
+      fontWeight: '600',
+      color: '#e2e8f0',
+      background: 'transparent',
+      border: 'none',
+      borderRadius: '6px',
+      cursor: 'pointer',
+    });
+    el.addEventListener('mouseenter', () => { el.style.background = '#334155'; });
+    el.addEventListener('mouseleave', () => { el.style.background = 'transparent'; });
+    return el;
+  };
+
+  const pagesItem = item('pages');
+  pagesItem.addEventListener('click', async () => {
+    const status = await getPagesStatus();
+    if (status?.running) {
+      await stopPagesRun();
+      showToast('Stopped opening pages');
+    } else {
+      try {
+        const count = await startPagesRun();
+        showToast(count ? `Opening ${count} unread page(s), one every 5s` : 'No unread pages found');
+      } catch (_) {
+        showToast('Could not start (reload the page)');
+      }
+    }
+    refreshMoreMenu();
+  });
+
+  const feedbackItem = item('feedback');
+  feedbackItem.addEventListener('click', async () => {
+    if (isFeedbackRunActive()) {
+      clearFeedbackRun();
+      showToast('Stopped feedback forms');
+      refreshMoreMenu();
+      return;
+    }
+    closeMoreMenu();
+    const count = await startFeedbackRun().catch(() => 0);
+    showToast(count ? `Completing ${count} feedback form(s)` : 'No incomplete feedback forms found');
+  });
+
+  menu.append(pagesItem, feedbackItem);
+
+  // Close when clicking anywhere else on the page.
+  document.addEventListener('click', () => closeMoreMenu());
+  return menu;
+}
+
+function openMoreMenu() {
+  const menu = document.getElementById('amigo-shiftn-menu');
+  if (!menu) return;
+  menu.style.display = 'flex';
+  refreshMoreMenu();
+  clearInterval(moreMenuTimer);
+  moreMenuTimer = setInterval(refreshMoreMenu, 1000);
+}
+
+function closeMoreMenu() {
+  const menu = document.getElementById('amigo-shiftn-menu');
+  if (menu) menu.style.display = 'none';
+  clearInterval(moreMenuTimer);
+  moreMenuTimer = null;
+}
+
+// Updates menu item labels to reflect whether each run is in progress.
+async function refreshMoreMenu() {
+  const menu = document.getElementById('amigo-shiftn-menu');
+  if (!menu) return;
+  const pagesItem = menu.querySelector('[data-role="pages"]');
+  const feedbackItem = menu.querySelector('[data-role="feedback"]');
+
+  const status = await getPagesStatus();
+  pagesItem.textContent = status?.running
+    ? `■ Stop opening pages (${status.done}/${status.total})`
+    : '▶ Open unread pages';
+
+  const remaining = getFeedbackQueue()?.length ?? 0;
+  feedbackItem.textContent = isFeedbackRunActive()
+    ? `■ Stop feedback forms (${remaining} left)`
+    : '▶ Complete feedback forms';
 }
 
 // Reflects the current auto-navigation run state on the floating button.
@@ -462,6 +796,9 @@ document.addEventListener('keydown', (event) => {
   // Escape — stop any in-progress auto-navigation run.
   if (event.code === 'Escape') {
     clearAutoNav();
+    clearFeedbackRun();
+    stopPagesRun();
+    refreshMoreMenu();
     return;
   }
 
