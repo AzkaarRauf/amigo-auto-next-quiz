@@ -32,6 +32,11 @@ There are two ways to trigger it:
   - Landing on a `mod/quiz/view.php` whose heading ends with **"Module Assessment"** → stop (does **not** auto-attempt it) + a longer jingle.
 - **Press `Esc`** at any time to stop an in-progress run.
 
+## Navigation modes (popup)
+
+- **V1 — Step by step** (default): clicks through every page (content, feedback, quiz) one at a time, as described above.
+- **V2 — Jump to next quiz**: skips content pages. It reads the course's activity list (the focus-mode "Activity List" dropdown), finds the first **incomplete** quiz after the current activity, opens it, and clicks **Attempt quiz**. It stops on the attempt page with a chime. After you answer, click the button again: it pages through the attempt, submits it, and from the review page jumps to the next incomplete quiz. A quiz with no **Attempt quiz** button counts as done and is skipped. Module Assessments are quizzes too, so the run stops on them with the jingle. If the page doesn't show the activity list (e.g. quiz review), V2 fetches it from the current activity's view page.
+
 ## Recommended usage
 
 **Use the golden button.** It's the simplest and most reliable way to drive Auto Navigate:
@@ -68,6 +73,7 @@ After editing any file, click the **refresh** icon on the extension's card in `c
 | **Shift + N** | Master switch for the keyboard shortcut. |
 | **Auto Navigate** | Makes `Shift + N` keep advancing until the attempt page. Requires Shift + N to be on. |
 | **Floating Button** | Shows the golden "Go to Next Quiz" button. |
+| **Navigation mode** | V1 (step by step) or V2 (jump to next quiz). |
 
 Settings are saved with `chrome.storage` and apply to open tabs immediately.
 
@@ -75,7 +81,7 @@ Settings are saved with `chrome.storage` and apply to open tabs immediately.
 
 - `content.js` is injected into every page on `https://amigo.amityonline.com/*` and contains all the navigation logic.
 - A run that's "in progress" is tracked per-tab via `sessionStorage`, so it survives the page reloads that happen as you navigate.
-- The popup (`popup.html` / `popup.js`) just reads and writes the three toggle values.
+- The popup (`popup.html` / `popup.js`) reads and writes the toggle values and the navigation mode.
 
 ## Disclaimer
 

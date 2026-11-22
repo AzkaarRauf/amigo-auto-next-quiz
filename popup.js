@@ -42,3 +42,14 @@ autoToggle.addEventListener('change', () => {
 fabToggle.addEventListener('change', () => {
   chrome.storage.local.set({ showFloatingButton: fabToggle.checked });
 });
+
+const versionRadios = [...document.querySelectorAll('input[name="nav-version"]')];
+
+chrome.storage.local.get(['navVersion'], ({ navVersion }) => {
+  const value = navVersion === 'v2' ? 'v2' : 'v1';
+  versionRadios.forEach((r) => { r.checked = r.value === value; });
+});
+
+versionRadios.forEach((r) => r.addEventListener('change', () => {
+  if (r.checked) chrome.storage.local.set({ navVersion: r.value });
+}));

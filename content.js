@@ -6,12 +6,14 @@ const settings = {
   shiftNEnabled: true,
   autoNavigate: false,
   showFloatingButton: false,
+  navVersion: 'v1', // 'v1' = click through every page, 'v2' = jump straight to next quiz
 };
 
-chrome.storage.local.get(['shiftNEnabled', 'autoNavigate', 'showFloatingButton'], (stored) => {
+chrome.storage.local.get(['shiftNEnabled', 'autoNavigate', 'showFloatingButton', 'navVersion'], (stored) => {
   if (typeof stored.shiftNEnabled === 'boolean') settings.shiftNEnabled = stored.shiftNEnabled;
   if (typeof stored.autoNavigate === 'boolean') settings.autoNavigate = stored.autoNavigate;
   if (typeof stored.showFloatingButton === 'boolean') settings.showFloatingButton = stored.showFloatingButton;
+  if (stored.navVersion === 'v1' || stored.navVersion === 'v2') settings.navVersion = stored.navVersion;
   maybeResumeAutoNav();
   ensureFloatingButton();
 });
@@ -21,6 +23,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.shiftNEnabled) settings.shiftNEnabled = changes.shiftNEnabled.newValue;
   if (changes.autoNavigate) settings.autoNavigate = changes.autoNavigate.newValue;
   if (changes.showFloatingButton) settings.showFloatingButton = changes.showFloatingButton.newValue;
+  if (changes.navVersion) settings.navVersion = changes.navVersion.newValue;
 
   if (changes.showFloatingButton) ensureFloatingButton();
 });
@@ -114,6 +117,114 @@ function performAction(type) {
     default:
       return false;
   }
+}
+
+// ---------- V2 navigation: jump straight to the next incomplete quiz ----------
+
+// Course module id of the current page, from Moodle's `cmid-123` body class.
+function currentCmid() {
+  return document.body?.className.match(/\bcmid-(\d+)\b/)?.[1] ?? null;
+}
+
+// Module name of the current page, from Moodle's `path-mod-quiz` body class.
+function currentModName() {
+  return document.body?.className.match(/\bpath-mod-([a-z]+)\b/)?.[1] ?? null;
+}
+
+const ACTIVITY_LINK_SELECTOR = '#accordionEx1 .activity-item a[href]';
+
+// Parses the activity list (focus-mode "Activity List" dropdown) into
+// [{ id, url, isQuiz, complete, name }], in course order.
+function parseActivities(doc) {
+  return [...doc.querySelectorAll(ACTIVITY_LINK_SELECTOR)].map((a) => {
+    const url = a.href || a.getAttribute('href');
+    const id = url.match(/[?&]id=(\d+)/)?.[1] ?? null;
+    return {
+      id,
+      url,
+      isQuiz: url.includes('/mod/quiz/view.php'),
+      complete: !!a.querySelector('.complete_icon'),
+      name: a.textContent.trim().replace(/\s+/g, ' '),
+    };
+  });
+}
+
+// Gets the activity list from this page, or — if this page doesn't render it
+// (e.g. quiz review) — from a fresh fetch of the current activity's view page.
+async function loadActivities() {
+  const here = parseActivities(document);
+  if (here.length) return here;
+
+  const cmid = currentCmid();
+  const mod = currentModName();
+  if (!cmid || !mod) return [];
+
+  const res = await fetch(`${BASE}/${mod}/view.php?id=${cmid}`, { credentials: 'include' });
+  if (!res.ok) return [];
+  const html = await res.text();
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  return parseActivities(doc);
+}
+
+// Navigates to the first incomplete quiz after the current activity in course
+// order (Module Assessments are quizzes too, so they're reached naturally).
+async function goToNextQuiz() {
+  try {
+    const activities = await loadActivities();
+    const cmid = currentCmid();
+    const pos = cmid ? activities.findIndex(a => a.id === cmid) : -1;
+    const next = activities
+      .slice(pos + 1)
+      .find(a => a.isQuiz && !a.complete && a.id !== cmid);
+
+    if (!next) {
+      clearAutoNav();
+      return false;
+    }
+    window.location.href = next.url;
+    return true;
+  } catch (_) {
+    clearAutoNav();
+    return false;
+  }
+}
+
+function findAttemptButton() {
+  return [...document.querySelectorAll('button, a')]
+    .find(el => el.textContent.trim().includes('Attempt quiz'));
+}
+
+// V2 action for the given page type. Content/feedback pages are skipped
+// entirely: we jump straight to the next quiz instead of clicking through.
+function performActionV2(type) {
+  switch (type) {
+    case 'quizview': {
+      const attemptButton = findAttemptButton();
+      if (attemptButton) {
+        attemptButton.click();
+        return true;
+      }
+      // No "Attempt quiz" button => this quiz is done; move to the next one.
+      goToNextQuiz();
+      return true;
+    }
+    case 'attempt':
+    case 'summary':
+      return performAction(type);
+    case 'review':
+    case 'page':
+    case 'feedback':
+    case 'feedbackform':
+    case 'other':
+      goToNextQuiz();
+      return true;
+    default:
+      return false;
+  }
+}
+
+function runAction(type) {
+  return settings.navVersion === 'v2' ? performActionV2(type) : performAction(type);
 }
 
 function setAutoNav() {
@@ -243,7 +354,7 @@ function maybeResumeAutoNav() {
       return;
     }
 
-    const acted = performAction(type);
+    const acted = runAction(type);
     if (!acted) clearAutoNav();
   }, 400);
 }
@@ -259,13 +370,15 @@ const ACTIONABLE_TYPES = ['page', 'quizview', 'feedback', 'feedbackform', 'summa
 function startNavigation(auto) {
   const type = getPageType(window.location.href);
 
-  if (auto && ACTIONABLE_TYPES.includes(type)) {
+  // V2 can start from anywhere that renders the activity list.
+  const actionable = ACTIONABLE_TYPES.includes(type) || settings.navVersion === 'v2';
+  if (auto && actionable) {
     setAutoNav();
   } else {
     clearAutoNav();
   }
 
-  performAction(type);
+  runAction(type);
 }
 
 function ensureFloatingButton() {

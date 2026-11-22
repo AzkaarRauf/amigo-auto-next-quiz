@@ -54,10 +54,34 @@
     input:checked + .slider { background: var(--accent); }
     input:checked + .slider::before { transform: translateX(18px); }
     input:disabled + .slider { cursor: not-allowed; }
+
+    .modes { display: flex; flex-direction: column; gap: 8px; }
+    .mode { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
+    .mode input { accent-color: var(--accent); margin-top: 2px; }
   </style>
 </head>
 <body>
   <h1>Amigo Shift+N Navigator</h1>
+
+  <div class="row" id="row-mode">
+    <div class="modes">
+      <div class="label">Navigation mode</div>
+      <label class="mode">
+        <input type="radio" name="nav-version" value="v1" />
+        <div>
+          <div class="label">V1 &mdash; Step by step</div>
+          <div class="sub">Click Next through every page until the quiz.</div>
+        </div>
+      </label>
+      <label class="mode">
+        <input type="radio" name="nav-version" value="v2" />
+        <div>
+          <div class="label">V2 &mdash; Jump to next quiz</div>
+          <div class="sub">Skip content pages: open the next incomplete quiz from the activity list and start it.</div>
+        </div>
+      </label>
+    </div>
+  </div>
 
   <div class="row" id="row-enabled">
     <div>
