@@ -2,6 +2,7 @@ const BASE = 'https://amigo.amityonline.com/mod';
 const AUTO_NAV_FLAG = 'amigoShiftN_autoNavActive';
 const FAB_FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
 const GOLD_BG = 'linear-gradient(135deg, #ffe066 0%, #ffd700 45%, #d4af37 100%)';
+const NAV_BG = 'linear-gradient(135deg, #7dd3fc 0%, #38bdf8 45%, #0284c7 100%)';
 
 // Defaults: Shift+N on, Auto Navigate off, floating button off.
 const settings = {
@@ -9,13 +10,16 @@ const settings = {
   autoNavigate: false,
   showFloatingButton: false,
   navVersion: 'v1', // 'v1' = click through every page, 'v2' = jump straight to next quiz
+  fabCorner: 'br', // floating button anchor: 'br' | 'bl' | 'tr' | 'tl'
 };
+const FAB_CORNERS = ['br', 'bl', 'tr', 'tl'];
 
-chrome.storage.local.get(['shiftNEnabled', 'autoNavigate', 'showFloatingButton', 'navVersion'], (stored) => {
+chrome.storage.local.get(['shiftNEnabled', 'autoNavigate', 'showFloatingButton', 'navVersion', 'fabCorner'], (stored) => {
   if (typeof stored.shiftNEnabled === 'boolean') settings.shiftNEnabled = stored.shiftNEnabled;
   if (typeof stored.autoNavigate === 'boolean') settings.autoNavigate = stored.autoNavigate;
   if (typeof stored.showFloatingButton === 'boolean') settings.showFloatingButton = stored.showFloatingButton;
   if (stored.navVersion === 'v1' || stored.navVersion === 'v2') settings.navVersion = stored.navVersion;
+  if (FAB_CORNERS.includes(stored.fabCorner)) settings.fabCorner = stored.fabCorner;
   maybeResumeAutoNav();
   maybeResumeFeedbackRun();
   ensureFloatingButton();
@@ -28,8 +32,43 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.showFloatingButton) settings.showFloatingButton = changes.showFloatingButton.newValue;
   if (changes.navVersion) settings.navVersion = changes.navVersion.newValue;
 
+  if (changes.fabCorner && FAB_CORNERS.includes(changes.fabCorner.newValue)) {
+    settings.fabCorner = changes.fabCorner.newValue;
+    applyFabCorner();
+  }
+
   if (changes.showFloatingButton) ensureFloatingButton();
 });
+
+// Fixed-position offsets for the chosen corner; `v` = vertical inset.
+function cornerStyle(v) {
+  const c = settings.fabCorner;
+  const top = c[0] === 't';
+  const left = c[1] === 'l';
+  return {
+    top: top ? v : 'auto',
+    bottom: top ? 'auto' : v,
+    left: left ? '20px' : 'auto',
+    right: left ? 'auto' : '20px',
+  };
+}
+
+function applyFabCorner() {
+  const wrap = document.getElementById('amigo-shiftn-fab-wrap');
+  if (wrap) Object.assign(wrap.style, cornerStyle('20px'));
+  const menu = document.getElementById('amigo-shiftn-menu');
+  if (menu) {
+    const c = settings.fabCorner;
+    Object.assign(menu.style, {
+      top: c[0] === 't' ? 'calc(100% + 8px)' : 'auto',
+      bottom: c[0] === 't' ? 'auto' : 'calc(100% + 8px)',
+      left: c[1] === 'l' ? '0' : 'auto',
+      right: c[1] === 'l' ? 'auto' : '0',
+    });
+  }
+  const toast = document.getElementById('amigo-shiftn-toast');
+  if (toast) Object.assign(toast.style, cornerStyle('84px'));
+}
 
 function getPageType(url) {
   if (url.startsWith(`${BASE}/quiz/attempt.php`)) return 'attempt';
@@ -399,7 +438,7 @@ function showToast(text) {
   toast.id = 'amigo-shiftn-toast';
   toast.textContent = text;
   Object.assign(toast.style, {
-    position: 'fixed', right: '20px', bottom: '84px', zIndex: '2147483647',
+    position: 'fixed', ...cornerStyle('84px'), zIndex: '2147483647',
     padding: '8px 12px', borderRadius: '8px', fontSize: '13px',
     fontFamily: FAB_FONT,
     background: '#1e293b', color: '#e2e8f0', boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
@@ -572,13 +611,11 @@ function ensureFloatingButton() {
   if (existing) return;
   if (!document.body) return;
 
-  // Row anchored bottom-right: [golden button][⋮]
+  // Row anchored at the chosen corner: [golden button][⋮]
   const wrap = document.createElement('div');
   wrap.id = 'amigo-shiftn-fab-wrap';
   Object.assign(wrap.style, {
     position: 'fixed',
-    right: '20px',
-    bottom: '20px',
     zIndex: '2147483647',
     display: 'flex',
     alignItems: 'stretch',
@@ -657,6 +694,7 @@ function ensureFloatingButton() {
 
   wrap.append(btn, dots, menu);
   document.body.appendChild(wrap);
+  applyFabCorner();
   updateFabState();
 }
 
@@ -668,8 +706,6 @@ function buildMoreMenu() {
   Object.assign(menu.style, {
     display: 'none',
     position: 'absolute',
-    right: '0',
-    bottom: 'calc(100% + 8px)',
     minWidth: '250px',
     padding: '6px',
     background: '#1e293b',
@@ -784,6 +820,9 @@ function updateFabState() {
 
   btn.style.cursor = 'pointer';
   btn.style.opacity = navigating ? '0.9' : '1';
+  btn.style.background = navigating ? NAV_BG : GOLD_BG;
+  btn.style.borderColor = navigating ? '#0369a1' : '#c9a227';
+  btn.style.color = navigating ? '#06263d' : '#3a2d00';
 
   if (label) label.textContent = navigating ? 'Navigating...' : 'Go to Next Quiz';
   if (hint) {

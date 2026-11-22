@@ -54,3 +54,13 @@ versionRadios.forEach((r) => r.addEventListener('change', () => {
   if (r.checked) chrome.storage.local.set({ navVersion: r.value });
 }));
 
+
+const cornerSelect = document.getElementById('select-corner');
+
+chrome.storage.local.get(['fabCorner'], ({ fabCorner }) => {
+  cornerSelect.value = ['br', 'bl', 'tr', 'tl'].includes(fabCorner) ? fabCorner : 'br';
+});
+
+cornerSelect.addEventListener('change', () => {
+  chrome.storage.local.set({ fabCorner: cornerSelect.value });
+});
