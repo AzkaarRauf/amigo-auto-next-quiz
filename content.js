@@ -130,8 +130,8 @@ function isAutoNavActive() {
   try { return sessionStorage.getItem(AUTO_NAV_FLAG) === '1'; } catch (_) { return false; }
 }
 
-// Plays a chime to signal navigation stopped. `long` plays a longer jingle,
-// used when stopping at a Module Assessment quiz.
+// Plays a sound to signal navigation stopped. Default: subtle ~2s bass
+// "pick-pock" for a regular quiz. `long`: bright jingle for Module Assessment.
 function playArrivalSound(long = false) {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -140,12 +140,48 @@ function playArrivalSound(long = false) {
     if (ctx.state === 'suspended') ctx.resume().catch(() => {});
 
     const now = ctx.currentTime;
-    // Short: a quick two-note chime. Long: an ascending celebratory jingle.
-    const notes = long
-      ? [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98] // C5 E5 G5 C6 E6 G6
-      : [659.25, 987.77]; // E5 -> B5
-    const step = long ? 0.17 : 0.16;
-    const dur = long ? 0.30 : 0.24;
+
+    if (!long) {
+      // Subtle bass-heavy "pick-pock" pattern, ~2s: three pairs of low thumps.
+      const hits = [
+        [0.00, 196], [0.20, 147], // pick-pock (G3 -> D3)
+        [0.70, 196], [0.90, 147],
+        [1.40, 196], [1.60, 131], // final pock lands lower (C3)
+      ];
+      hits.forEach(([t, freq], i) => {
+        const start = now + t;
+        const dur = i === hits.length - 1 ? 0.4 : 0.22;
+        const gain = ctx.createGain();
+        gain.gain.setValueAtTime(0.0001, start);
+        gain.gain.exponentialRampToValueAtTime(0.3, start + 0.008);
+        gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+        gain.connect(ctx.destination);
+
+        // Body: sine with quick pitch drop for a woody thump.
+        const body = ctx.createOscillator();
+        body.type = 'sine';
+        body.frequency.setValueAtTime(freq * 1.8, start);
+        body.frequency.exponentialRampToValueAtTime(freq, start + 0.04);
+        body.connect(gain);
+
+        // Faint overtone so it's audible on laptop speakers.
+        const over = ctx.createOscillator();
+        const overGain = ctx.createGain();
+        over.type = 'triangle';
+        over.frequency.value = freq * 2;
+        overGain.gain.value = 0.12;
+        over.connect(overGain).connect(gain);
+
+        [body, over].forEach((o) => { o.start(start); o.stop(start + dur); });
+      });
+      setTimeout(() => { ctx.close().catch(() => {}); }, 2300);
+      return;
+    }
+
+    // Long: an ascending celebratory jingle.
+    const notes = [523.25, 659.25, 783.99, 1046.50, 1318.51, 1567.98]; // C5 E5 G5 C6 E6 G6
+    const step = 0.17;
+    const dur = 0.30;
 
     notes.forEach((freq, i) => {
       const osc = ctx.createOscillator();
